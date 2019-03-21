@@ -1,0 +1,113 @@
+---
+title: "M4 Competition"
+author: "VuThanh"
+date: "March 21, 2019"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import packages
+```{r, message=FALSE, warning=FALSE}
+library(M4comp2018)
+library(xts)
+library(astsa)
+library(ggplot2)
+library(forecast)
+library(ggfortify)
+library(fpp2)
+```
+## Load M4 data
+```{r, message=FALSE, warning=FALSE}
+data(M4)
+```
+
+## Create a data frame to sumarize the M4 data structure
+```{r, message=FALSE, warning=FALSE}
+df = data.frame(matrix(ncol = 5, nrow = 100000))
+colnames(df) = c("st", "n", "type", "h", "period")
+df$st = unlist(Map(function(l) {as.character(l$st[[1]][1])}, M4))
+df$n = unlist(Map(function(l) {c(l$n[[1]][1]) }, M4))
+df$type = unlist(Map(function(l) {as.character(l$type[[1]][1])}, M4))
+df$h = unlist(Map(function(l) {c(l$h[[1]][1]) }, M4))
+df$period = unlist(Map(function(l) {as.character(l$period[[1]][1])}, M4))
+```
+
+```{r, message=FALSE, warning=FALSE}
+str(df)
+table(df$period)
+```
+
+## Extract M4 data: yearly, quarterly, monthly, dayly, hourly
+```{r, message=FALSE, warning=FALSE}
+yearly_M4 = Filter(function(l) l$period == "Yearly", M4)
+quarterly_M4 = Filter(function(l) l$period == "Quarterly", M4)
+monthly_M4 = Filter(function(l) l$period == "Monthly", M4)
+weekly_M4 = Filter(function(l) l$period == "Weekly", M4)
+hourly_M4 = Filter(function(l) l$period == "Hourly", M4)
+daily_M4 = Filter(function(l) l$period == "Daily", M4)
+```
+
+## Plot the first sample 
+(including n_ahead data in red)
+```{r, message=FALSE, warning=FALSE, echo = FALSE}
+plot(ts(c(M4[[1]]$x, M4[[1]]$xx), start = start(M4[[1]]$x), frequency = frequency(M4[[1]]$x)), 
+    col = 'black', type = 'l')
+lines(M4[[1]]$xx, col = 'red')
+```
+
+## Extract one sample month to perform statistical models
+Extract the first month
+
+```{r, message=FALSE, warning=FALSE}
+monthly_1_full = ts(c(monthly_M4[[1]]$x, monthly_M4[[1]]$xx),
+               start=start(monthly_M4[[1]]$x), 
+               frequency = frequency(monthly_M4[[1]]$x))
+monthly_1_train = ts(monthly_M4[[1]]$x, 
+                  start=start(monthly_M4[[1]]$x), 
+                  frequency = frequency(monthly_M4[[1]]$x))
+monthly_1_test = ts(monthly_M4[[1]]$xx, 
+                  start=start(monthly_M4[[1]]$xx), 
+                  frequency = frequency(monthly_M4[[1]]$xx))
+```
+Explore the structure of the training and test set
+```{r, message=FALSE, warning=FALSE}
+head(monthly_1_train)
+str(monthly_1_train)
+head(monthly_1_test)
+str(monthly_1_test)
+```
+### plot the monthly sample: including full, training and test set
+```{r, message=FALSE, warning=FALSE}
+plot(ts(monthly_1_full,
+        start = start(monthly_1_full),
+        frequency = frequency(monthly_1_full)),
+     type = 'l', col = 'black', ylab ='', xlab ='')
+lines(monthly_1_test, col = 'red', type = 'o', xlab = '')
+```
+Produce a polar coordinate season plot
+```{r, message=FALSE, warning=FALSE}
+ggseasonplot(monthly_1_train, polar = T)
+```
+Create subseries plot that comprises mini time plots for each season
+```{r, message=FALSE, warning=FALSE}
+ggsubseriesplot(monthly_1_train)
+```
+### Plot the monthly sample: Removing trend 
+```{r, message=FALSE, warning=FALSE}
+autoplot(diff(monthly_1_train))
+```
+## Explore time series patterns: Trend, seasonal, or cyclic
+```{r, message=FALSE, warning=FALSE}
+acf2(diff(monthly_1_train))
+```
+
+
+
+
+
+
