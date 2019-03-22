@@ -11,7 +11,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Import packages
+## 1. Import packages
 ```{r, message=FALSE, warning=FALSE}
 library(M4comp2018)
 library(xts)
@@ -21,12 +21,12 @@ library(forecast)
 library(ggfortify)
 library(fpp2)
 ```
-## Load M4 data
+## 2. Load M4 data
 ```{r, message=FALSE, warning=FALSE}
 data(M4)
 ```
 
-## Create a data frame to sumarize the M4 data structure
+## 3. Create a data frame to sumarize the M4 data structure
 ```{r, message=FALSE, warning=FALSE}
 df = data.frame(matrix(ncol = 5, nrow = 100000))
 colnames(df) = c("st", "n", "type", "h", "period")
@@ -42,7 +42,7 @@ str(df)
 table(df$period)
 ```
 
-## Extract M4 data: yearly, quarterly, monthly, dayly, hourly
+## 4. Extract M4 data: yearly, quarterly, monthly, dayly, hourly
 ```{r, message=FALSE, warning=FALSE}
 yearly_M4 = Filter(function(l) l$period == "Yearly", M4)
 quarterly_M4 = Filter(function(l) l$period == "Quarterly", M4)
@@ -52,7 +52,7 @@ hourly_M4 = Filter(function(l) l$period == "Hourly", M4)
 daily_M4 = Filter(function(l) l$period == "Daily", M4)
 ```
 
-## Plot the first sample 
+## 5. Plot the first sample 
 (including n_ahead data in red)
 ```{r, message=FALSE, warning=FALSE, echo = FALSE}
 plot(ts(c(M4[[1]]$x, M4[[1]]$xx), start = start(M4[[1]]$x), frequency = frequency(M4[[1]]$x)), 
@@ -60,9 +60,8 @@ plot(ts(c(M4[[1]]$x, M4[[1]]$xx), start = start(M4[[1]]$x), frequency = frequenc
 lines(M4[[1]]$xx, col = 'red')
 ```
 
-## Extract one sample month to perform statistical models
-Extract the first month
-
+## 6. Extract one sample month to perform statistical models
+Extract the first month: full, training, and test set
 ```{r, message=FALSE, warning=FALSE}
 monthly_1_full = ts(c(monthly_M4[[1]]$x, monthly_M4[[1]]$xx),
                start=start(monthly_M4[[1]]$x), 
@@ -101,13 +100,54 @@ ggsubseriesplot(monthly_1_train)
 ```{r, message=FALSE, warning=FALSE}
 autoplot(diff(monthly_1_train))
 ```
-## Explore time series patterns: Trend, seasonal, or cyclic
+## 7. Explore time series patterns: Trend, seasonal, or cyclic
 ```{r, message=FALSE, warning=FALSE}
 acf2(diff(monthly_1_train))
 ```
 
+## 8. Ljung-Box test: Finding h autocorrelation
+```{r, message=FALSE, warning=FALSE}
+Box.test(monthly_1_train, fitdf = 0, lag = 24, type = 'Lj')
+Box.test(diff(monthly_1_train), fitdf = 0, lag = 24, type = 'Lj')
+```
+The **Ljung-Box** test result (p-value <<< 0.05) shows autocorrelation in both original data and differencing data.
 
+## 9. Employ statistical model to forecast
+### 9.1. Seasonal Naive model
+  Model summary and plot
+```{r, message=FALSE, warning=FALSE}
+snaive_f = snaive(diff(monthly_1_train), h = 18)
+autoplot(snaive_f) 
+summary(snaive_f)
+```
+  Fitted values and residuals
+```{r, message=FALSE, warning=FALSE}
+autoplot(snaive_f, series = "Train")
+```
+  Check residuals whether white noise or not
+```{r, message=FALSE, warning=FALSE}
+checkresiduals(snaive_f)
+```
+  Accuracy of Seasonal Naive model
+```{r, message=FALSE, warning=FALSE}
+accuracy(snaive_f, diff(monthly_1_test))
+```
 
-
-
+### 9. Seasonal Arima model
+  Model summary and plot
+```{r, message=FALSE, warning=FALSE}
+sarima_f = auto.arima(monthly_1_train)
+summary(sarima_f)
+sarima_f %>% 
+  forecast(h = 18) %>%
+  autoplot()
+```
+  Check residuals whether white noise or not
+```{r, message=FALSE, warning=FALSE}
+checkresiduals(sarima_f)
+```
+  Accuracy of Seasonal Arima model
+```{r, message=FALSE, warning=FALSE}
+accuracy(forecast(sarima_f, h = 18), monthly_1_test, d = 0, D = 1)
+```
 
