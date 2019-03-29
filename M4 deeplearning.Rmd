@@ -1,0 +1,347 @@
+---
+title: "M4-Competition:Extract data and Implement Naive-ARIMA-ANN-RNN-LSTM"
+author: "VuThanh"
+date: "March 21, 2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Import packages
+```{r, message=FALSE, warning=FALSE}
+library(M4comp2018)
+library(astsa)
+library(tidyverse)
+library(forecast)
+library(ggfortify)
+library(fpp2)
+library(rnn)
+library(glue)
+library(tidyverse)
+library(glue)
+library(forcats)
+library(timetk)
+library(tidyquant)
+library(tibbletime)
+library(cowplot)
+library(recipes)
+library(rsample)
+library(yardstick) 
+library(keras)
+```
+
+## 2. Extracting data: yearly, quarterly, monthly, dayly, hourly
+List data struture
+```{r, message=FALSE, warning=FALSE}
+data(M4)
+yearly_M4 = Filter(function(l) l$period == "Yearly", M4)
+quarterly_M4 = Filter(function(l) l$period == "Quarterly", M4)
+monthly_M4 = Filter(function(l) l$period == "Monthly", M4)
+weekly_M4 = Filter(function(l) l$period == "Weekly", M4)
+hourly_M4 = Filter(function(l) l$period == "Hourly", M4)
+daily_M4 = Filter(function(l) l$period == "Daily", M4)
+``` 
+
+## 3. Extract one sample to implement statistical models and deep learning
+### Extract the first month sample: full, training, and test set
+```{r, message=FALSE, warning=FALSE}
+monthly_1_full = ts(c(monthly_M4[[1]]$x, monthly_M4[[1]]$xx),
+               start=start(monthly_M4[[1]]$x), 
+               frequency = frequency(monthly_M4[[1]]$x))
+monthly_1_train = ts(monthly_M4[[1]]$x, 
+                  start=start(monthly_M4[[1]]$x), 
+                  frequency = frequency(monthly_M4[[1]]$x))
+monthly_1_test = ts(monthly_M4[[1]]$xx, 
+                  start=start(monthly_M4[[1]]$xx), 
+                  frequency = frequency(monthly_M4[[1]]$xx))
+``` 
+### plot the monthly sample: including full, training and test set
+```{r, message=FALSE, warning=FALSE}
+plot(ts(monthly_1_full,
+        start = start(monthly_1_full),
+        frequency = frequency(monthly_1_full)),
+     type = 'l', col = 'black', ylab ='', xlab ='')
+lines(monthly_1_test, col = 'red', type = 'o', xlab = '')
+```
+Produce a polar coordinate season plot
+```{r, message=FALSE, warning=FALSE}
+ggseasonplot(monthly_1_train, polar = T)
+```
+Create subseries plot that comprises mini time plots for each season
+```{r, message=FALSE, warning=FALSE}
+ggsubseriesplot(monthly_1_train)
+```
+### Plot the monthly sample: Removing trend 
+```{r, message=FALSE, warning=FALSE}
+autoplot(diff(monthly_1_train))
+```
+## 4. Explore time series patterns: Trend, seasonal, or cyclic
+```{r, message=FALSE, warning=FALSE}
+acf2(diff(monthly_1_train))
+```
+The first differencing data have seasonal pattern
+## 5. Ljung-Box test: Finding h autocorrelation
+```{r, message=FALSE, warning=FALSE}
+Box.test(monthly_1_train, fitdf = 0, lag = 24, type = 'Lj')
+Box.test(diff(monthly_1_train), fitdf = 0, lag = 24, type = 'Lj')
+```
+The **Ljung-Box** test result (p-value <<< 0.05) shows autocorrelation in both original data and differencing data.
+## 6. Implement statistical model to predict
+### 6.1. Seasonal Naive model
+  Model summary and plot
+```{r, message=FALSE, warning=FALSE}
+snaive_f = snaive(diff(monthly_1_train), h = 18)
+autoplot(snaive_f) 
+summary(snaive_f)
+```
+  Fitted values and residuals
+```{r, message=FALSE, warning=FALSE}
+autoplot(snaive_f, series = "Train")
+```
+  Check residuals whether white noise or not
+```{r, message=FALSE, warning=FALSE}
+checkresiduals(snaive_f)
+```
+  Accuracy of Seasonal Naive model
+```{r, message=FALSE, warning=FALSE}
+forecast::accuracy(snaive_f, diff(monthly_1_test))
+```
+
+### 6.2. Seasonal Arima model
+  Model summary and plot
+```{r, message=FALSE, warning=FALSE}
+sarima_f = auto.arima(monthly_1_train)
+summary(sarima_f)
+sarima_f %>% 
+  forecast(h = 18) %>%
+  autoplot()
+```
+  Check residuals whether white noise or not
+```{r, message=FALSE, warning=FALSE}
+checkresiduals(sarima_f)
+```
+  Accuracy of Seasonal Arima model
+```{r, message=FALSE, warning=FALSE}
+forecast::accuracy(forecast(sarima_f, h = 18), monthly_1_test, d = 0, D = 1)
+```
+
+## 7. Implement RNN
+### 7.1. Convert time serial to matrix
+```{r, message=FALSE, warning=FALSE}
+Y_train = matrix(monthly_1_train)
+Y_test = matrix(monthly_1_test)
+```
+### 7.2. Standardize in the interval 0 - 1 then transpose
+```{r, message=FALSE, warning=FALSE}
+Y_train_scaled = (Y_train - min(Y_train)) / (max(Y_train) - min(Y_train))
+Y_train = t(Y_train_scaled)
+Y_test_scaled = (Y_test - min(Y_test)) / (max(Y_test) - min(Y_test))
+Y_test = t(Y_test_scaled)
+```
+
+### 7.3. Training RNN
+```{r, message=FALSE, warning=FALSE}
+model = trainr(Y = Y_train,
+               X = Y_train,
+               learningrate = 0.05,
+               hidden_dim = 16,
+               numepochs = 1000)
+```
+
+### Summarize the rnn model
+```{r, message=FALSE, warning=FALSE}
+summary(model)
+plot(colMeans(model$error),type='l',xlab='epoch',ylab='errors')
+```
+### Plot errors
+```{r, message=FALSE, warning=FALSE}
+plot(colMeans(model$error),type='l',xlab='epoch',ylab='errors')
+```
+### Predict test set
+```{r, message=FALSE, warning=FALSE}
+y_pred = predictr(model, Y_test)
+```
+### Plot prediction vs actual
+```{r, message=FALSE, warning=FALSE}
+plot(as.vector(t(Y_test)), col = 'red', type='l',
+     main = "Actual vs Predicted data: testing set",
+     ylab = "Y,Yp")
+lines(as.vector(t(y_pred)), type = 'l', col = 'black')
+legend("bottomright", c("Predicted", "Actual"),
+       col = c("red","black"),
+       lty = c(1,1), lwd = c(1,1))
+```
+### Accuracy analysis
+```{r, message=FALSE, warning=FALSE}
+forecast::accuracy(ts(Y_test), ts(y_pred))
+```
+
+## 8. Implement LSTM
+### 8.1. Convert ts data to tibble data
+```{r, message=FALSE, warning=FALSE}
+monthly = tk_tbl(monthly_1_full) %>%
+  mutate(index = as_date(index)) %>%
+  as_tbl_time(index = index)
+
+head(monthly)
+```
+### 8.2.  Visualizing monthly Data With Cowplot
+```{r, message=FALSE, warning=FALSE}
+monthly %>%
+    ggplot(aes(index, value)) +
+    geom_point(color = palette_light()[[1]], alpha = 0.5) +
+    geom_smooth(method = "loess", span = 0.2, se = FALSE) +
+    theme_tq() +
+    labs(title = "Monthly Data Set)")
+```
+### 8.3.  Evaluating AFC and 
+Autocorrelation: h = 12 
+```{r, message=FALSE, warning=FALSE}
+tidy_acf <- function(data, value, lags = 0:20) {
+    
+    value_expr <- enquo(value)
+    
+    acf_values <- data %>%
+        pull(value) %>%
+        acf(lag.max = tail(lags, 1), plot = FALSE) %>%
+        .$acf %>%
+        .[,,1]
+    
+    ret <- tibble(acf = acf_values) %>%
+        rowid_to_column(var = "lag") %>%
+        mutate(lag = lag - 1) %>%
+        filter(lag %in% lags)
+    
+    return(ret)
+}
+
+monthly %>%
+    tidy_acf(value, lags = 0:24)
+```
+Plotting 
+```{r, message=FALSE, warning=FALSE}
+monthly %>%
+    tidy_acf(value, lags = 0:24) %>%
+    ggplot(aes(lag, acf)) +
+    geom_segment(aes(xend = lag, yend = 0), color = palette_light()[[1]]) +
+    geom_vline(xintercept = 12, size = 3, color = palette_light()[[2]]) +
+    annotate("text", label = "12 Month Mark", x = 12, y = 0.827, 
+             color = palette_light()[[2]], size = 6, hjust = 0) +
+    theme_tq() +
+    labs(title = "ACF: Monthly")
+```
+#### The optimal lag occurs at lag 12
+#### We can theoretically implement the LSTM model
+
+### 8.4. Backtesting Strategy 
+```{r, message=FALSE, warning=FALSE}
+periods_train <- 12 * 10
+periods_test  <- 12 * 5
+skip_span     <- 12 * 6
+
+rolling_origin_resamples <- rolling_origin(
+    monthly,
+    initial    = periods_train,
+    assess     = periods_test,
+    cumulative = FALSE,
+    skip       = skip_span
+)
+
+rolling_origin_resamples
+```
+### 8.5. LSTM Model: Keras 
+Data Setup
+```{r, message=FALSE, warning=FALSE}
+split    <- rolling_origin_resamples$splits[[1]]
+split_id <- rolling_origin_resamples$id[[1]]
+df_trn <- training(split)
+df_tst <- testing(split)
+
+df <- bind_rows(
+    df_trn %>% add_column(key = "training"),
+    df_tst %>% add_column(key = "testing")
+) %>% 
+    as_tbl_time(index = index)
+
+head(df)
+```
+Preprocessing With Recipes: centere and scale data
+```{r, message=FALSE, warning=FALSE}
+rec_obj <- recipe(value ~ ., df) %>%
+    step_sqrt(value) %>%
+    step_center(value) %>%
+    step_scale(value) %>%
+    prep()
+
+df_processed_tbl <- bake(rec_obj, df)
+
+df_processed_tbl
+```
+LSTM Model input
+```{r, message=FALSE, warning=FALSE}
+lag_setting  <- 12
+batch_size   <- 10
+train_length <- 120
+tsteps       <- 1
+epochs       <- 300
+```
+2D And 3D Train/Test Arrays
+```{r, message=FALSE, warning=FALSE}
+# Training Set
+lag_train_tbl <- df_processed_tbl %>%
+    mutate(value_lag = lag(value, n = lag_setting)) %>%
+    filter(!is.na(value_lag)) %>%
+    filter(key == "training") %>%
+    tail(train_length)
+
+x_train_vec <- lag_train_tbl$value_lag
+x_train_arr <- array(data = x_train_vec, dim = c(length(x_train_vec), 1, 1))
+
+y_train_vec <- lag_train_tbl$value
+y_train_arr <- array(data = y_train_vec, dim = c(length(y_train_vec), 1))
+
+# Testing Set
+lag_test_tbl <- df_processed_tbl %>%
+    mutate(
+        value_lag = lag(value, n = lag_setting)
+    ) %>%
+    filter(!is.na(value_lag)) %>%
+    filter(key == "testing")
+
+x_test_vec <- lag_test_tbl$value_lag
+x_test_arr <- array(data = x_test_vec, dim = c(length(x_test_vec), 1, 1))
+
+y_test_vec <- lag_test_tbl$value
+y_test_arr <- array(data = y_test_vec, dim = c(length(y_test_vec), 1))
+```
+Implement LSTM model
+```{r, message=FALSE, warning=FALSE}
+# Error: model_lstm <- keras_model_sequential()
+
+# Error: model_lstm %>%
+# Error:    layer_lstm(units            = 50, 
+# Error:               input_shape      = c(tsteps, 1), 
+# Error:               batch_size       = batch_size,
+# Error:               return_sequences = TRUE, 
+# Error:               stateful         = TRUE) %>% 
+# Error:    layer_lstm(units            = 50, 
+# Error:               return_sequences = FALSE, 
+# Error:               stateful         = TRUE) %>% 
+# Error:    layer_dense(units = 1)
+
+# Error: model_lstm %>% 
+# Error:    compile(loss = 'mae', optimizer = 'adam')
+
+# Error: model_lstm
+```
+
+
+
+
+
+
+
